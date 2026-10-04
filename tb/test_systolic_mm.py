@@ -74,7 +74,26 @@ async def start_held_high(dut):
     assert dut.busy.value == 0
     assert dut.done.value == 1
 
-    await FallingEdge(dut.clk)              # start is still high and busy was low, so go is high: this edge begins a new run
+    await FallingEdge(dut.clk)             # start is still high and busy was low, so go is high: this edge begins a new run
     assert dut.busy.value == 1
     assert dut.done.value == 0
     assert dut.t.value == 0
+
+
+@cocotb.test()
+async def capture(dut):
+    await reset(dut)
+
+    dut.a_flat.value = 0x04030201          # A = [[1, 2], [3, 4]]
+    dut.b_flat.value = 0x08070605          # B = [[5, 6], [7, 8]]
+    dut.start.value = 1
+    await FallingEdge(dut.clk)             # copies are taken
+    assert dut.a_r.value == 0x04030201
+    assert dut.b_r.value == 0x08070605
+
+    dut.a_flat.value = 0                   # change the inputs
+    dut.b_flat.value = 0
+    await FallingEdge(dut.clk)
+    await FallingEdge(dut.clk)
+    assert dut.a_r.value == 0x04030201     # busy is high, so the copies do not change
+    assert dut.b_r.value == 0x08070605

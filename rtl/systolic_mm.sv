@@ -20,6 +20,9 @@ module systolic_mm #(
     logic go;
     assign go = start && !busy;
 
+    logic [N*N*DW-1:0] a_r;
+    logic [N*N*DW-1:0] b_r;
+
     always_ff @(posedge clk) begin
         if (rst) begin
             busy <= 0;
@@ -30,6 +33,9 @@ module systolic_mm #(
             busy <= 1;
             t <= '0;
             done <= 0;
+
+            a_r <= a_flat;
+            b_r <= b_flat;
         end
         else if (busy) begin
             t <= t + 1;

@@ -124,3 +124,25 @@ async def feeds(dut):
     await FallingEdge(dut.clk)             # finished: nothing is fed
     assert dut.a_feed[0].value == 0 and dut.a_feed[1].value == 0
     assert dut.b_feed[0].value == 0 and dut.b_feed[1].value == 0
+
+@cocotb.test()
+async def product(dut):
+    n, aw, steps = sizes(dut)
+    if n != 2:
+        dut._log.info("skipped: the expected values below are for N = 2")
+        return
+    await reset(dut)
+
+    dut.a_flat.value = 0x04030201          # A = [[1, 2], [3, 4]]
+    dut.b_flat.value = 0x08070605          # B = [[5, 6], [7, 8]]
+    dut.start.value = 1
+    await FallingEdge(dut.clk)             # edge 1
+    dut.start.value = 0
+    for _ in range(steps):                 # edges 2 to 5
+        await FallingEdge(dut.clk)
+    assert dut.done.value == 1
+
+    c = int(dut.c_flat.value)              # the whole 68-bit bus as one integer
+    mask = (1 << aw) - 1                   # aw ones in a row: keeps one 17-bit slot
+    got = [(c >> (aw * slot)) & mask for slot in range(4)]
+    assert got == [19, 22, 43, 50]         # C = [[19, 22], [43, 50]]

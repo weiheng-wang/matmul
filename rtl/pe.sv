@@ -1,4 +1,4 @@
-module pe #( // processing unit
+module pe #( // processing element
     parameter int DW = 8,
     // data width, 8 bits per matrix entry for A and B
     parameter int AW = 18

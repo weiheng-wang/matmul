@@ -1,6 +1,8 @@
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import FallingEdge
+import numpy as np
+from mm_helpers import pack, unpack
 
 DW = 8
 
@@ -22,6 +24,25 @@ async def reset(dut):
     await FallingEdge(dut.clk)
     await FallingEdge(dut.clk)
     dut.rst.value = 0
+
+
+async def multiply(dut, a, b):
+    """Run one product. Returns C as a NumPy array, and the number of edges it took."""
+    n, aw, steps = sizes(dut)
+    dut.a_flat.value = pack(a, DW)
+    dut.b_flat.value = pack(b, DW)
+    dut.start.value = 1
+    await FallingEdge(dut.clk)             # the starting edge has happened
+    dut.start.value = 0
+    dut.a_flat.value = 0                   # the design has its own copies now
+    dut.b_flat.value = 0
+
+    edges = 0
+    while dut.done.value != 1:             # wait for done, counting edges
+        await FallingEdge(dut.clk)
+        edges += 1
+        assert edges <= 10 * steps, "done never went high"
+    return unpack(int(dut.c_flat.value), n, aw), edges
 
 
 @cocotb.test()
@@ -146,3 +167,42 @@ async def product(dut):
     mask = (1 << aw) - 1                   # aw ones in a row: keeps one 17-bit slot
     got = [(c >> (aw * slot)) & mask for slot in range(4)]
     assert got == [19, 22, 43, 50]         # C = [[19, 22], [43, 50]]
+
+
+@cocotb.test()
+async def random_products(dut):
+    n, aw, steps = sizes(dut)
+    await reset(dut)
+
+    rng = np.random.default_rng(0)
+    for _ in range(1000):
+        a = rng.integers(-128, 128, size=(n, n))
+        b = rng.integers(-128, 128, size=(n, n))
+        c_expected = a @ b
+        c_got, edges = await multiply(dut, a, b)
+        assert edges == steps, f"expected {steps} edges, got {edges}"
+        assert np.array_equal(c_expected, c_got), (
+            f"A=\n{a}\nB=\n{b}\nexpected\n{c_expected}\ngot\n{c_got}"
+        )
+
+
+@cocotb.test()
+async def corner_cases(dut):
+    n, aw, steps = sizes(dut)
+    await reset(dut)
+
+    lo = np.full((n, n), -128)             # every entry is the most negative value
+    hi = np.full((n, n), 127)              # every entry is the most positive value
+    zero = np.zeros((n, n), dtype=int)
+    eye = np.eye(n, dtype=int)             # the identity matrix
+    rng = np.random.default_rng(1)
+    m = rng.integers(-128, 128, size=(n, n))
+
+    pairs = [(lo, lo), (lo, hi), (hi, hi), (zero, m), (eye, m), (m, eye)]
+    for a, b in pairs:
+        c_expected = a @ b
+        c_got, edges = await multiply(dut, a, b)
+        assert edges == steps, f"expected {steps} edges, got {edges}"
+        assert np.array_equal(c_expected, c_got), (
+            f"A=\n{a}\nB=\n{b}\nexpected\n{c_expected}\ngot\n{c_got}"
+        )

@@ -97,3 +97,30 @@ async def capture(dut):
     await FallingEdge(dut.clk)
     assert dut.a_r.value == 0x04030201     # busy is high, so the copies do not change
     assert dut.b_r.value == 0x08070605
+
+
+@cocotb.test()
+async def feeds(dut):
+    n, aw, steps = sizes(dut)
+    if n != 2:
+        dut._log.info("skipped: the expected values below are for N = 2")
+        return
+    await reset(dut)
+
+    dut.a_flat.value = 0x04030201          # A = [[1, 2], [3, 4]]
+    dut.b_flat.value = 0x08070605          # B = [[5, 6], [7, 8]]
+    dut.start.value = 1
+
+    rows = [(1, 0), (2, 3), (0, 4), (0, 0)]   # (row 0, row 1) after edges 1 to 4
+    cols = [(5, 0), (7, 6), (0, 8), (0, 0)]   # (column 0, column 1)
+    for row, col in zip(rows, cols):
+        await FallingEdge(dut.clk)
+        dut.start.value = 0
+        assert dut.a_feed[0].value.to_signed() == row[0]
+        assert dut.a_feed[1].value.to_signed() == row[1]
+        assert dut.b_feed[0].value.to_signed() == col[0]
+        assert dut.b_feed[1].value.to_signed() == col[1]
+
+    await FallingEdge(dut.clk)             # finished: nothing is fed
+    assert dut.a_feed[0].value == 0 and dut.a_feed[1].value == 0
+    assert dut.b_feed[0].value == 0 and dut.b_feed[1].value == 0

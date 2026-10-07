@@ -206,3 +206,84 @@ async def corner_cases(dut):
         assert np.array_equal(c_expected, c_got), (
             f"A=\n{a}\nB=\n{b}\nexpected\n{c_expected}\ngot\n{c_got}"
         )
+
+@cocotb.test()
+async def second_start_is_ignored(dut):
+    """A start with new inputs while busy must not disturb the product in progress."""
+    n, aw, steps = sizes(dut)
+    await reset(dut)
+    rng = np.random.default_rng(2)
+    a1 = rng.integers(-128, 128, size=(n, n))
+    b1 = rng.integers(-128, 128, size=(n, n))
+    a2 = rng.integers(-128, 128, size=(n, n))
+    b2 = rng.integers(-128, 128, size=(n, n))
+
+    dut.a_flat.value = pack(a1, DW)        # first product
+    dut.b_flat.value = pack(b1, DW)
+    dut.start.value = 1
+    await FallingEdge(dut.clk)             # its starting edge
+    dut.start.value = 0
+    await FallingEdge(dut.clk)
+
+    dut.a_flat.value = pack(a2, DW)        # different inputs and a second start, mid-run
+    dut.b_flat.value = pack(b2, DW)
+    dut.start.value = 1
+    await FallingEdge(dut.clk)
+    dut.start.value = 0
+
+    for _ in range(steps - 2):             # the first product still finishes on time
+        assert dut.done.value == 0
+        await FallingEdge(dut.clk)
+    assert dut.done.value == 1
+    c_got = unpack(int(dut.c_flat.value), n, aw)
+    assert np.array_equal(a1 @ b1, c_got), f"expected\n{a1 @ b1}\ngot\n{c_got}"
+
+
+@cocotb.test()
+async def reset_mid_product(dut):
+    """A reset during a product stops it, and the next product is still correct."""
+    n, aw, steps = sizes(dut)
+    await reset(dut)
+    rng = np.random.default_rng(3)
+    a = rng.integers(-128, 128, size=(n, n))
+    b = rng.integers(-128, 128, size=(n, n))
+
+    dut.a_flat.value = pack(a, DW)
+    dut.b_flat.value = pack(b, DW)
+    dut.start.value = 1
+    await FallingEdge(dut.clk)
+    dut.start.value = 0
+    await FallingEdge(dut.clk)
+    await FallingEdge(dut.clk)
+
+    dut.rst.value = 1                      # reset in the middle of the run
+    await FallingEdge(dut.clk)
+    dut.rst.value = 0
+    assert dut.busy.value == 0
+    assert dut.done.value == 0
+    assert int(dut.c_flat.value) == 0
+
+    for _ in range(2 * steps):             # the stopped product never finishes later
+        await FallingEdge(dut.clk)
+        assert dut.done.value == 0
+
+    c_got, edges = await multiply(dut, a, b)
+    assert edges == steps, f"expected {steps} edges, got {edges}"
+    assert np.array_equal(a @ b, c_got), f"expected\n{a @ b}\ngot\n{c_got}"
+
+
+@cocotb.test()
+async def result_holds(dut):
+    """C stays valid after done until the next start."""
+    n, aw, steps = sizes(dut)
+    await reset(dut)
+    rng = np.random.default_rng(4)
+    a = rng.integers(-128, 128, size=(n, n))
+    b = rng.integers(-128, 128, size=(n, n))
+
+    c_got, edges = await multiply(dut, a, b)
+    for _ in range(5):                     # five idle edges after done
+        await FallingEdge(dut.clk)
+        assert dut.done.value == 0
+        c_now = unpack(int(dut.c_flat.value), n, aw)
+        assert np.array_equal(a @ b, c_now), f"expected\n{a @ b}\ngot\n{c_now}"

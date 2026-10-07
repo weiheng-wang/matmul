@@ -1,0 +1,6 @@
+   {
+     "DESIGN_NAME": "systolic_mm",
+     "VERILOG_FILES": ["dir::rtl/pe.sv", "dir::rtl/systolic_mm.sv"],
+     "CLOCK_PORT": "clk",
+     "CLOCK_PERIOD": 20
+   }
